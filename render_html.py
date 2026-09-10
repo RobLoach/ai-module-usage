@@ -578,7 +578,7 @@ def render_html(payload: dict) -> str:
         f'  <p class="meta">Generated {today} &middot; {count} modules'
         f' &middot; {recipe_count} recipes &middot; Drupal {v_label} compatible</p>\n'
         '  <p class="sponsor">Sponsored by DrupalEasy\'s'
-        ' <a href="https://drupaleasy.com/rdab"><em>Responsible Drupal AI Basics</em></a> course</p>\n'
+        ' <a href="https://drupaleasy.com/aide"><em>AI Inside Drupal Essentials</em></a> course</p>\n'
         '  <div class="tabs">\n'
         f'    <button class="tab-btn active" data-tab="modules">Modules ({count})</button>\n'
         f'    <button class="tab-btn" data-tab="recipes">Recipes ({recipe_count})</button>\n'
