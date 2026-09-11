@@ -1,6 +1,6 @@
 # Drupal AI Dependents
 
-`drupal_ai_dependents.py` finds all Drupal modules and recipes that declare a **hard dependency on [drupal/ai](https://www.drupal.org/project/ai)** in their `composer.json`, and writes the results as JSON. It only collects and verifies data — `render_md.py` and `render_html.py` turn that JSON into a markdown file or a self-contained HTML page, each with two tables: Modules (label, machine name, URL, latest release version, release date, security advisory coverage, active install count) and Recipes (same first four columns plus Packagist download count and star count — no Drupal.org security coverage or usage, since those don't exist for recipes, see [Recipes](#recipes) below). Each project's own description (from its `*.info.yml` / `recipe.yml` `description:` key) is shown as a muted second line beneath its label in both tables. Every module and recipe is also tagged with one or more **categories** (Tool, Cloud Providers, Search, Chat, Agents, Media, …) derived from its name and description — both renderers show these in a Categories column, and the HTML page lets you filter by them.
+`drupal_ai_dependents.py` finds all Drupal AI modules and recipes — every module that declares a **hard dependency on [drupal/ai](https://www.drupal.org/project/ai)** in its `composer.json`, plus every module filed under drupal.org's **"Artificial Intelligence (AI)" project category** (which qualifies by tag alone, even without the composer dependency) — and writes the results as JSON. Each module row records which case applies in a `requires_ai` boolean, shown as a `drupal/ai` column (✓ / —) in both renderers and filterable in the HTML page. It only collects and verifies data — `render_md.py` and `render_html.py` turn that JSON into a markdown file or a self-contained HTML page, each with two tables: Modules (label, machine name, URL, latest release version, release date, security advisory coverage, active install count) and Recipes (same first four columns plus Packagist download count and star count — no Drupal.org security coverage or usage, since those don't exist for recipes, see [Recipes](#recipes) below). Each project's own description (from its `*.info.yml` / `recipe.yml` `description:` key) is shown as a muted second line beneath its label in both tables. Every module and recipe is also tagged with one or more **categories** (Tool, Cloud Providers, Search, Chat, Agents, Media, …) derived from its name and description — both renderers show these in a Categories column, and the HTML page lets you filter by them.
 
 ## Requirements
 
@@ -163,13 +163,15 @@ packages to `stderr`, then rewrites the file in place. Re-render afterwards with
 
 ## How it works
 
-### Stage 1 — Candidate discovery (two sources, union-merged)
+### Stage 1 — Candidate discovery (three sources, union-merged)
 
 **Source 1:** Paginates through all pages of `drupal.org/project/ai/ecosystem` — the AI module's curated ecosystem listing — to collect project machine names.
 
 **Source 2:** Paginates through `packages.drupal.org/8/search.json?s=ai` — a full-text search of the Drupal Composer repository — to collect additional candidate package names. This catches modules that depend on drupal/ai but have not been added to the ecosystem listing.
 
-Both sources are merged and deduplicated (~730 unique candidates on a typical run).
+**Source 3:** Paginates through `www.drupal.org/api-d7/node.json?type=project_module&taxonomy_vocabulary_3=204588` — every module whose drupal.org "Project category" includes **Artificial Intelligence (AI)**. Modules from this source are included even without a composer dependency on drupal/ai (the tag is the maintainer's own claim that the module is AI-related), so it catches integrations like WebMCP modules that have no code-level drupal/ai dependency at all.
+
+All three sources are merged and deduplicated (~1000 unique candidates on a typical run).
 
 ### Stage 2 — Dependency verification (authoritative)
 
@@ -182,10 +184,10 @@ packages.drupal.org/files/packages/8/p2/drupal/{name}.json
 This file contains the parsed contents of each version's `composer.json`. The script checks:
 
 1. `type == "drupal-module"` — excludes recipes, profiles, and distributions
-2. `"drupal/ai"` is present in the `require` field — confirms a hard dependency
+2. `"drupal/ai"` is present in the `require` field — confirms a hard dependency. **Skipped for candidates from the AI project category (Source 3)**, which qualify by tag; the outcome is recorded per module in a `requires_ai` boolean.
 3. The `drupal/core` constraint includes Drupal 10 or 11
 
-Only modules passing all three checks are included. This makes the list **more precise** than an ecosystem-page approach: modules that appear on the ecosystem page but don't actually require drupal/ai (e.g. companion modules, integrations) are correctly excluded.
+Only modules passing these checks are included. Candidates from Sources 1 and 2 must pass all three, so ecosystem-page or search hits that don't actually require drupal/ai are still correctly excluded — unless they also carry the AI project category, in which case the maintainer's own categorization is the qualification (and the `drupal/ai` column shows — instead of ✓).
 
 The p2 file also provides:
 - The exact version string

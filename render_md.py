@@ -62,16 +62,21 @@ def render_md(payload: dict) -> str:
     recipe_count = len(recipe_rows)
 
     lines = [
-        f"# Drupal Modules and Recipes with a Hard Dependency on [AI](https://www.drupal.org/project/ai)\n",
+        f"# Drupal AI Modules and Recipes\n",
+        f"*Modules with a hard dependency on [drupal/ai](https://www.drupal.org/project/ai)"
+        f" or filed under drupal.org's \"Artificial Intelligence (AI)\" project category*\n",
         f"*Generated {today} · {count} modules · {recipe_count} recipes ·"
         f" Drupal {v_label} compatible · all stability levels*\n",
         "Sponsored by DrupalEasy's [*Responsible Drupal AI Basics*](https://drupaleasy.com/rdab) course\n",
         "## Modules\n",
-        "| Label | URL | Latest Version | Release Date | Security | Usage | Categories |",
-        "|-------|-----|:--------------:|:------------:|:------------------:|----------------:|------------|",
+        "| Label | URL | Latest Version | Release Date | Security | Usage | drupal/ai | Categories |",
+        "|-------|-----|:--------------:|:------------:|:------------------:|----------------:|:---------:|------------|",
     ]
     for r in rows:
         usage_str = f"{r['usage']:,}" if r["usage"] else "—"
+        # Back-compat: results.json files from before the AI-category source
+        # only ever contained hard dependents, so default to True.
+        requires_ai_str = "✓" if r.get("requires_ai", True) else "—"
         if r["security_covered"]:
             stability = r.get("stability", "stable")
             security_str = (SECURITY_COVERED_STABLE_MD
@@ -82,7 +87,7 @@ def render_md(payload: dict) -> str:
         lines.append(
             f"| {_label_cell(r)} | {r['url']} | `{r['version']}` |"
             f" {r['release_date']} | {security_str} | {usage_str} |"
-            f" {_categories_cell(r)} |"
+            f" {requires_ai_str} | {_categories_cell(r)} |"
         )
 
     lines.append(
@@ -90,6 +95,8 @@ def render_md(payload: dict) -> str:
         f" {SECURITY_COVERED_STABLE_MD} Covered (stable release)"
         f" &nbsp;·&nbsp; {SECURITY_COVERED_PRERELEASE_MD} Covered (pre-release)"
         f" &nbsp;·&nbsp; {SECURITY_NOT_COVERED_EMOJI} Not covered by security advisory policy"
+        f"<br>*drupal/ai:* ✓ Hard composer dependency on drupal/ai"
+        f" &nbsp;·&nbsp; — AI project category only"
     )
 
     # Recipes have no Drupal.org usage tracking and no meaningful security-advisory
