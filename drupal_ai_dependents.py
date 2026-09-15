@@ -1,25 +1,26 @@
 #!/usr/bin/env python3
 """
-Find all Drupal AI modules and recipes — every module with a hard dependency
-on drupal/ai (https://www.drupal.org/project/ai) in its composer.json, plus
-every module filed under drupal.org's "Artificial Intelligence (AI)" project
-category — and write the results as JSON. This script only collects and
-verifies data — render the output with render_md.py (markdown) or
-render_html.py (sortable/filterable HTML).
+Find all Drupal modules and recipes with a hard dependency on drupal/ai
+(https://www.drupal.org/project/ai) and write the results as JSON — or, with
+--full-ecosystem, widen that to every module filed under drupal.org's
+"Artificial Intelligence (AI)" project category too, dependency or not. This
+script only collects and verifies data — render the output with render_md.py
+(markdown) or render_html.py (sortable/filterable HTML).
 
-Module candidate discovery (three sources, union-merged):
+Module candidate discovery (two sources, union-merged):
   1. drupal.org/project/ai/ecosystem  — curated AI ecosystem listing
   2. packages.drupal.org search "ai"  — package name/description search
   3. drupal.org AI project category   — modules tagged "Artificial
-     Intelligence (AI)" via the api-d7 node listing
+     Intelligence (AI)" via the api-d7 node listing.
+     ONLY crawled with --full-ecosystem.
 
 Module dependency verification (authoritative, reads composer.json directly):
   packages.drupal.org/files/packages/8/p2/drupal/{name}.json
-  Confirms type=drupal-module AND (for candidates from sources 1 and 2)
-  drupal/ai is in the require field. Modules from source 3 are included
-  even without the drupal/ai dependency — being filed under the AI category
-  is treated as its own qualification — and every module row records
-  whether the dependency is present in a `requires_ai` boolean.
+  Confirms type=drupal-module AND drupal/ai is in the require field.
+  Under --full-ecosystem, candidates from source 3 skip that second check —
+  being filed under the AI project category is treated as its own
+  qualification — and every module row records whether the dependency is
+  present in a `requires_ai` boolean.
   Also supplies version, Drupal core constraint, and release datestamp.
 
 Module additional data:
@@ -37,12 +38,15 @@ general rate limits are already enforced server-side via HTTP 429 with a
 Retry-After header, which _http_get() honors.
 
 Usage:
-  python3 drupal_ai_dependents.py [--json FILE]
+  python3 drupal_ai_dependents.py [--json FILE] [--full-ecosystem]
 
   # Write JSON, then render separately (recommended):
   python3 drupal_ai_dependents.py --json results.json
   python3 render_md.py results.json -o results.md
   python3 render_html.py results.json -o results.html
+
+  # Include AI-category-tagged modules that don't require drupal/ai:
+  python3 drupal_ai_dependents.py --full-ecosystem --json results.json
 """
 
 # Python's standard library modules — no composer/npm needed.
@@ -1329,7 +1333,17 @@ def main() -> None:
              "existing results.json (FILE) and write it back in place. Fast "
              "(no network) — use this to iterate on the category keyword rules.",
     )
+    parser.add_argument(
+        "--full-ecosystem", action="store_true",
+        help="Widen the crawl beyond hard drupal/ai dependents: also include "
+             "modules filed under drupal.org's 'Artificial Intelligence (AI)' "
+             "project category, even when they have no composer dependency on "
+             "drupal/ai. Off by default, in which case the results contain "
+             "only projects that require drupal/ai.",
+    )
     # args.json will be a filename string if provided, or None if omitted (print to stdout).
+    # args.full_ecosystem is a bool — argparse converts the --full-ecosystem
+    # flag's dash to an underscore.
     args = parser.parse_args()
 
     # --categorize is a fast, network-free path: re-derive categories on an
@@ -1340,28 +1354,44 @@ def main() -> None:
         return
 
     # -------------------------------------------------------------------------
-    # Step 1: Collect candidate module names from both sources
+    # Step 1: Collect candidate module names from the enabled sources
     # -------------------------------------------------------------------------
+    # The first two sources always run and feed the strict "must require
+    # drupal/ai" verification. The third (drupal.org's AI project category)
+    # only runs under --full-ecosystem, because it deliberately admits
+    # modules that have no drupal/ai dependency at all.
+    full_ecosystem = args.full_ecosystem
+    source_count = 3 if full_ecosystem else 2
     print("Collecting candidates …", file=sys.stderr)
 
     # `file=sys.stderr` sends output to STDERR instead of STDOUT.
     # This keeps progress messages separate from the markdown output,
     # so piping or redirecting stdout only captures the final table.
-    print("  [1/3] Scraping AI ecosystem pages …", file=sys.stderr)
+    print(f"  [1/{source_count}] Scraping AI ecosystem pages …", file=sys.stderr)
     eco_names = get_ecosystem_candidates()
     print(f"        {len(eco_names)} names found", file=sys.stderr)
     # len() is like PHP's count().
 
-    print("  [2/3] Searching packages.drupal.org for 'ai' …", file=sys.stderr)
+    print(f"  [2/{source_count}] Searching packages.drupal.org for 'ai' …", file=sys.stderr)
     search_names = get_search_candidates("ai")
     print(f"        {len(search_names)} names found", file=sys.stderr)
 
-    print("  [3/3] Listing modules in drupal.org's AI project category …", file=sys.stderr)
-    tagged_names = get_tagged_candidates()
-    print(f"        {len(tagged_names)} names found", file=sys.stderr)
+    if full_ecosystem:
+        print(f"  [3/{source_count}] Listing modules in drupal.org's AI project category …",
+              file=sys.stderr)
+        tagged_names = get_tagged_candidates()
+        print(f"        {len(tagged_names)} names found", file=sys.stderr)
+    else:
+        # Skipped entirely rather than crawled-and-filtered: this source adds
+        # ~300 candidates, and every one of them would need its own p2 request
+        # only to be rejected by the drupal/ai check.
+        tagged_names = []
+        print("  Skipping drupal.org AI project category "
+              "(pass --full-ecosystem to include it)", file=sys.stderr)
 
     # Modules from the AI category source qualify by tag alone — they are
     # exempt from the drupal/ai `require` check during verification below.
+    # Empty without --full-ecosystem, so every candidate is checked strictly.
     tagged_set = set(tagged_names)
 
     # Union-merge: start with ecosystem names (preserving their order),
@@ -1587,7 +1617,8 @@ def main() -> None:
     print(f"  Modules ({len(rows)}):", file=sys.stderr)
     print(f"    ecosystem page:              {mod_eco:3}  ({mod_eco - mod_both} unique to this source)", file=sys.stderr)
     print(f"    packages.drupal.org search:  {mod_search:3}  ({mod_search - mod_both} unique to this source)", file=sys.stderr)
-    print(f"    drupal.org AI category tag:  {mod_tagged:3}  ({mod_tag_only} unique to this source)", file=sys.stderr)
+    if full_ecosystem:
+        print(f"    drupal.org AI category tag:  {mod_tagged:3}  ({mod_tag_only} unique to this source)", file=sys.stderr)
     if mod_both:
         print(f"    in both eco + search:        {mod_both:3}", file=sys.stderr)
     print(f"  Recipes ({len(recipe_rows)}):", file=sys.stderr)
@@ -1619,6 +1650,10 @@ def main() -> None:
     payload = {
         "generated":       datetime.now().strftime("%Y-%m-%d"),
         "drupal_versions": sorted(TARGET_VERSIONS),
+        # Records which crawl produced this file, so the renderers can state
+        # the scope accurately (and know whether the drupal/ai column is
+        # meaningful — without --full-ecosystem every row requires drupal/ai).
+        "full_ecosystem":  full_ecosystem,
         "modules":         rows,
         "recipes":         recipe_rows,
     }
